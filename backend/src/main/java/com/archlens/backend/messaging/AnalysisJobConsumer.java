@@ -24,15 +24,18 @@ public class AnalysisJobConsumer {
     private final AnalysisJobService jobService;
     private final RepoAnalysisWorkerService workerService;
     private final Tier1DetectorService detectorService;
+    private final com.archlens.backend.service.GraphAssemblyService graphAssemblyService;
 
     public AnalysisJobConsumer(
             AnalysisJobService jobService,
             RepoAnalysisWorkerService workerService,
-            Tier1DetectorService detectorService
+            Tier1DetectorService detectorService,
+            com.archlens.backend.service.GraphAssemblyService graphAssemblyService
     ) {
         this.jobService = jobService;
         this.workerService = workerService;
         this.detectorService = detectorService;
+        this.graphAssemblyService = graphAssemblyService;
     }
 
     @RabbitListener(queues = RabbitMQConfig.ANALYSIS_JOBS_QUEUE)
@@ -53,17 +56,21 @@ public class AnalysisJobConsumer {
             jobService.updateJobProgress(message.jobId(), "running", "fetching_contents", 10, null);
             workspace = workerService.fetchRepoContents(message.repoId(), message.commitSha());
 
-            // Stage 2: detect frameworks/manifests (Tier 1 manifest detection)
+            // Stage 2: detect frameworks/manifests
+            DetectionResult detectionResult = null;
             if (workspace != null) {
-                DetectionResult detectionResult = detectorService.detect(workspace);
+                detectionResult = detectorService.detect(workspace);
                 String detectorResultsJson = detectorService.toJson(detectionResult);
                 jobService.updateJobProgressAndResults(message.jobId(), "running", "detecting_frameworks", 40, detectorResultsJson, null);
             } else {
                 jobService.updateJobProgress(message.jobId(), "running", "detecting_frameworks", 40, null);
             }
 
-            // Stage 3: assemble graph (M1.9 will build real graph)
+            // Stage 3: assemble graph (M1.9 graph persistence)
             jobService.updateJobProgress(message.jobId(), "running", "assembling_graph", 80, null);
+            if (detectionResult != null) {
+                graphAssemblyService.assembleAndPersistGraph(message.jobId(), message.repoId(), message.commitSha(), detectionResult);
+            }
 
             // Job complete
             jobService.updateJobProgress(message.jobId(), "succeeded", "completed", 100, null);
