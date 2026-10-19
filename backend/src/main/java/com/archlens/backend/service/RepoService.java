@@ -1,9 +1,7 @@
 package com.archlens.backend.service;
 
 import com.archlens.backend.client.GitHubClient;
-import com.archlens.backend.dto.CreateRepoRequest;
-import com.archlens.backend.dto.GitHubRepoDto;
-import com.archlens.backend.dto.RepoResponseDto;
+import com.archlens.backend.dto.*;
 import com.archlens.backend.entity.GithubCredential;
 import com.archlens.backend.entity.Repository;
 import com.archlens.backend.entity.User;
@@ -17,8 +15,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -174,5 +174,72 @@ public class RepoService {
                 saved.getAccessMethod(),
                 saved.isAuthorizedForTesting()
         );
+    }
+
+    @Transactional(readOnly = true)
+    public BranchListResponseDto listBranches(UUID repoId, Optional<User> currentUser) {
+        Repository repo = repoRepository.findById(repoId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "repo_not_found", "Repository not found"));
+
+        String token = resolveCredentialForRepo(repo, currentUser);
+        String[] parts = repo.getFullName().split("/", 2);
+        String owner = parts[0];
+        String repoName = parts.length > 1 ? parts[1] : "";
+
+        try {
+            List<BranchDto> branches = gitHubClient.fetchBranches(owner, repoName, token);
+            return new BranchListResponseDto(branches);
+        } catch (GitHubClient.GitHubClientException e) {
+            handleGitHubException(e);
+            return new BranchListResponseDto(List.of());
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public CommitListResponseDto listCommits(UUID repoId, String branch, Optional<User> currentUser) {
+        Repository repo = repoRepository.findById(repoId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "repo_not_found", "Repository not found"));
+
+        String targetBranch = (branch != null && !branch.isBlank()) ? branch : repo.getDefaultBranch();
+        String token = resolveCredentialForRepo(repo, currentUser);
+        String[] parts = repo.getFullName().split("/", 2);
+        String owner = parts[0];
+        String repoName = parts.length > 1 ? parts[1] : "";
+
+        try {
+            List<CommitDto> commits = gitHubClient.fetchCommits(owner, repoName, targetBranch, token);
+            return new CommitListResponseDto(commits);
+        } catch (GitHubClient.GitHubClientException e) {
+            handleGitHubException(e);
+            return new CommitListResponseDto(List.of());
+        }
+    }
+
+    private String resolveCredentialForRepo(Repository repo, Optional<User> currentUser) {
+        if ("user_oauth".equals(repo.getAccessMethod())) {
+            if (currentUser.isEmpty()) {
+                throw new ApiException(HttpStatus.UNAUTHORIZED, "unauthorized", "Authentication required to access private repository");
+            }
+            User user = currentUser.get();
+            if (repo.getUser() != null && !repo.getUser().getId().equals(user.getId())) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "not_owner", "You do not have permission to access this repository");
+            }
+            return credentialRepository.findByUser(user)
+                    .map(GithubCredential::getAccessTokenEncrypted)
+                    .map(encryptionService::decrypt)
+                    .orElse(null);
+        } else {
+            return gitHubClient.getDecryptedSystemToken().orElse(null);
+        }
+    }
+
+    private void handleGitHubException(GitHubClient.GitHubClientException e) {
+        if (e.getStatusCode() == 404) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "repo_not_found", "Repository not found on GitHub");
+        } else if (e.getStatusCode() == 429) {
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "github_rate_limited", "GitHub API rate limit exceeded");
+        } else {
+            throw new ApiException(HttpStatus.valueOf(e.getStatusCode()), "github_error", e.getMessage());
+        }
     }
 }

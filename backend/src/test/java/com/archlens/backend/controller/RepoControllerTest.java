@@ -1,6 +1,8 @@
 package com.archlens.backend.controller;
 
 import com.archlens.backend.client.GitHubClient;
+import com.archlens.backend.dto.BranchDto;
+import com.archlens.backend.dto.CommitDto;
 import com.archlens.backend.dto.GitHubOAuthTokenResponse;
 import com.archlens.backend.dto.GitHubRepoDto;
 import com.archlens.backend.dto.GitHubUserProfileDto;
@@ -25,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.hamcrest.Matchers.*;
@@ -308,5 +311,128 @@ class RepoControllerTest {
                         .content(requestJson))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.error.code", is("github_rate_limited")));
+    }
+
+    @Test
+    void testGetBranches_PublicRepo_Success() throws Exception {
+        Repository repo = repoRepository.save(new Repository(
+                null,
+                111222L,
+                "octocat/Hello-World",
+                "main",
+                "public_system_token"
+        ));
+
+        when(gitHubClient.getDecryptedSystemToken()).thenReturn(Optional.of("mock-system-token"));
+        when(gitHubClient.fetchBranches(eq("octocat"), eq("Hello-World"), eq("mock-system-token")))
+                .thenReturn(List.of(
+                        new BranchDto("main", "sha-main-111"),
+                        new BranchDto("dev", "sha-dev-222")
+                ));
+
+        mockMvc.perform(get("/api/v1/repos/{id}/branches", repo.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.branches", hasSize(2)))
+                .andExpect(jsonPath("$.branches[0].name", is("main")))
+                .andExpect(jsonPath("$.branches[0].commitSha", is("sha-main-111")))
+                .andExpect(jsonPath("$.branches[1].name", is("dev")));
+    }
+
+    @Test
+    void testGetBranches_PrivateRepo_RequiresOwnerSession() throws Exception {
+        User owner = userRepository.save(new User(777111L, "repo-owner", "owner@example.com", null));
+        String rawToken = "gho_owner_oauth_token";
+        credentialRepository.save(new GithubCredential(owner, encryptionService.encrypt(rawToken), new String[]{"repo"}, null));
+
+        Repository privateRepo = repoRepository.save(new Repository(
+                owner,
+                888222L,
+                "private-org/service-x",
+                "master",
+                "user_oauth"
+        ));
+
+        // 1. Anonymous -> 401 unauthorized
+        mockMvc.perform(get("/api/v1/repos/{id}/branches", privateRepo.getId()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code", is("unauthorized")));
+
+        // 2. Different user (not owner) -> 403 not_owner
+        User otherUser = userRepository.save(new User(777222L, "other-user", "other@example.com", null));
+        Cookie otherUserCookie = new Cookie(JwtService.SESSION_COOKIE_NAME, jwtService.generateSessionToken(otherUser));
+
+        mockMvc.perform(get("/api/v1/repos/{id}/branches", privateRepo.getId())
+                        .cookie(otherUserCookie))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code", is("not_owner")));
+
+        // 3. Authenticated owner -> 200 OK
+        when(gitHubClient.fetchBranches(eq("private-org"), eq("service-x"), eq(rawToken)))
+                .thenReturn(List.of(new BranchDto("master", "sha-master-priv")));
+
+        Cookie ownerCookie = new Cookie(JwtService.SESSION_COOKIE_NAME, jwtService.generateSessionToken(owner));
+
+        mockMvc.perform(get("/api/v1/repos/{id}/branches", privateRepo.getId())
+                        .cookie(ownerCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.branches", hasSize(1)))
+                .andExpect(jsonPath("$.branches[0].name", is("master")))
+                .andExpect(jsonPath("$.branches[0].commitSha", is("sha-master-priv")));
+    }
+
+    @Test
+    void testGetCommits_PublicRepo_DefaultsToDefaultBranch() throws Exception {
+        Repository repo = repoRepository.save(new Repository(
+                null,
+                111333L,
+                "octocat/Hello-World",
+                "main",
+                "public_system_token"
+        ));
+
+        when(gitHubClient.getDecryptedSystemToken()).thenReturn(Optional.of("mock-system-token"));
+        when(gitHubClient.fetchCommits(eq("octocat"), eq("Hello-World"), eq("main"), eq("mock-system-token")))
+                .thenReturn(List.of(
+                        new CommitDto("commit-sha-1", "Initial commit", "2026-10-10T10:00:00Z"),
+                        new CommitDto("commit-sha-2", "Add feature", "2026-10-11T12:00:00Z")
+                ));
+
+        mockMvc.perform(get("/api/v1/repos/{id}/commits", repo.getId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.commits", hasSize(2)))
+                .andExpect(jsonPath("$.commits[0].sha", is("commit-sha-1")))
+                .andExpect(jsonPath("$.commits[0].message", is("Initial commit")))
+                .andExpect(jsonPath("$.commits[0].authoredAt", is("2026-10-10T10:00:00Z")));
+    }
+
+    @Test
+    void testGetCommits_ExplicitBranchQueryParam() throws Exception {
+        Repository repo = repoRepository.save(new Repository(
+                null,
+                111444L,
+                "octocat/Hello-World",
+                "main",
+                "public_system_token"
+        ));
+
+        when(gitHubClient.getDecryptedSystemToken()).thenReturn(Optional.of("mock-system-token"));
+        when(gitHubClient.fetchCommits(eq("octocat"), eq("Hello-World"), eq("release-2.0"), eq("mock-system-token")))
+                .thenReturn(List.of(
+                        new CommitDto("sha-release", "Release 2.0", "2026-10-12T15:00:00Z")
+                ));
+
+        mockMvc.perform(get("/api/v1/repos/{id}/commits", repo.getId())
+                        .param("branch", "release-2.0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.commits", hasSize(1)))
+                .andExpect(jsonPath("$.commits[0].sha", is("sha-release")))
+                .andExpect(jsonPath("$.commits[0].message", is("Release 2.0")));
+    }
+
+    @Test
+    void testGetBranches_NonExistentRepo_Returns404() throws Exception {
+        mockMvc.perform(get("/api/v1/repos/{id}/branches", java.util.UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code", is("repo_not_found")));
     }
 }
