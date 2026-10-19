@@ -27,3 +27,17 @@ management:
     web:
       exposure:
         include: health,info
+
+archlens:
+  security:
+    encryption-key: ${ARCHLENS_ENCRYPTION_KEY:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+    jwt-secret: ${ARCHLENS_JWT_SECRET:archlens-default-jwt-secret-key-32-chars-long-or-more}
+  github:
+    api-base-url: ${ARCHLENS_GITHUB_API_BASE_URL:https://api.github.com}
+    oauth:
+      client-id: ${GITHUB_CLIENT_ID:archlens-mock-client-id}
+      client-secret: ${GITHUB_CLIENT_SECRET:archlens-mock-client-secret}
+      redirect-uri: ${GITHUB_REDIRECT_URI:http://localhost:8080/api/v1/auth/github/callback}
+      authorize-url: ${GITHUB_AUTHORIZE_URL:https://github.com/login/oauth/authorize}
+      token-url: ${GITHUB_TOKEN_URL:https://github.com/login/oauth/access_token}
+      user-url: ${GITHUB_USER_URL:https://api.github.com/user}
