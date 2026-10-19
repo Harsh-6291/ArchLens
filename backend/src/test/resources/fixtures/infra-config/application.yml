@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://db.example.com:5432/order_service_db
+    username: admin
+    password: super_secret_db_password_never_expose
+  data:
+    redis:
+      host: redis.example.com
+      port: 6379
+      password: super_secret_redis_auth_token
+  rabbitmq:
+    host: rabbit.example.com
+    port: 5672
+    username: rmq_user
+    password: super_secret_rmq_password
