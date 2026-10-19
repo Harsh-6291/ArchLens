@@ -27,7 +27,8 @@ class Tier1DetectorServiceTest {
                 new PythonRequirementsDetector(),
                 new GoModDetector(),
                 new DockerfileDetector(),
-                new DockerComposeDetector()
+                new DockerComposeDetector(),
+                new SpringBootDetector()
         );
         service = new Tier1DetectorService(detectors, objectMapper);
     }
@@ -40,7 +41,7 @@ class Tier1DetectorServiceTest {
         assertNotNull(result);
         assertFalse(result.nodes().isEmpty());
 
-        // We expect nodes for: nodejs, react, maven, gradle, python, go, docker, and docker-compose (4)
+        // We expect nodes for: nodejs, react, maven, gradle, python, go, docker, docker-compose (4), spring-boot
         assertTrue(result.nodes().size() >= 8);
 
         // Verify JSON serialization
@@ -51,6 +52,15 @@ class Tier1DetectorServiceTest {
         assertTrue(json.contains("order-service"));
         assertTrue(json.contains("PostgreSQL"));
         assertTrue(json.contains("Redis"));
+        assertTrue(json.contains("Spring Boot"));
+
+        // Verify Spring Boot node upgrade in the aggregated results
+        DetectedNode springNode = result.nodes().stream()
+                .filter(n -> "Spring Boot".equals(n.technology()))
+                .findFirst()
+                .orElse(null);
+        assertNotNull(springNode);
+        assertEquals(0.85, springNode.confidence());
     }
 
     @Test

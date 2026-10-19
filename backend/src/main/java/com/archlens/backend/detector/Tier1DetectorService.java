@@ -41,12 +41,17 @@ public class Tier1DetectorService {
                     List<DetectedNode> detectedNodes = detector.detect(workspaceRoot);
                     if (detectedNodes != null) {
                         for (DetectedNode node : detectedNodes) {
-                            // If duplicate IDs exist across files, disambiguate with sourceFile
                             String key = node.id();
                             if (nodesById.containsKey(key)) {
-                                key = node.id() + "[" + node.sourceFile() + "]";
+                                DetectedNode existing = nodesById.get(key);
+                                if (node.confidence() > existing.confidence()) {
+                                    log.info("Upgrading node '{}' with higher confidence detection ({}) from '{}'",
+                                            key, node.confidence(), detector.getName());
+                                    nodesById.put(key, node);
+                                }
+                            } else {
+                                nodesById.put(key, node);
                             }
-                            nodesById.put(key, node);
                         }
                     }
                 }
