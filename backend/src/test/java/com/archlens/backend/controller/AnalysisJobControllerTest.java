@@ -16,6 +16,8 @@ import com.archlens.backend.repository.UserRepository;
 import com.archlens.backend.security.JwtService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -27,11 +29,16 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.GZIPOutputStream;
 
+import static org.apache.commons.compress.archivers.tar.TarArchiveOutputStream.LONGFILE_POSIX;
 import static org.hamcrest.Matchers.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -45,46 +52,58 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class AnalysisJobControllerTest {
 
-    @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private ObjectMapper objectMapper;
-
-    @Autowired
-    private RepoRepository repoRepository;
-
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private AnalysisJobRepository analysisJobRepository;
-
-    @Autowired
-    private AnalysisJobConsumer consumer;
-
-    @Autowired
-    private AnalysisJobProducer producer;
-
-    @Autowired
-    private RabbitTemplate rabbitTemplate;
-
-    @Autowired
-    private JwtService jwtService;
+    @Autowired private MockMvc mockMvc;
+    @Autowired private ObjectMapper objectMapper;
+    @Autowired private RepoRepository repoRepository;
+    @Autowired private UserRepository userRepository;
+    @Autowired private AnalysisJobRepository analysisJobRepository;
+    @Autowired private AnalysisJobConsumer consumer;
+    @Autowired private AnalysisJobProducer producer;
+    @Autowired private RabbitTemplate rabbitTemplate;
+    @Autowired private JwtService jwtService;
 
     @MockBean
     private GitHubClient gitHubClient;
 
+    // -----------------------------------------------------------------------
+    // Helper: minimal valid .tar.gz that the real TarballExtractor can handle
+    // -----------------------------------------------------------------------
+    private static byte[] buildMinimalTarGz() throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzos = new GZIPOutputStream(bos);
+             TarArchiveOutputStream taos = new TarArchiveOutputStream(gzos)) {
+            taos.setLongFileMode(LONGFILE_POSIX);
+
+            TarArchiveEntry root = new TarArchiveEntry("fixture-repo-abc1234/");
+            taos.putArchiveEntry(root);
+            taos.closeArchiveEntry();
+
+            byte[] readmeBytes = "# Fixture Repo".getBytes(StandardCharsets.UTF_8);
+            TarArchiveEntry readme = new TarArchiveEntry("fixture-repo-abc1234/README.md");
+            readme.setSize(readmeBytes.length);
+            taos.putArchiveEntry(readme);
+            taos.write(readmeBytes);
+            taos.closeArchiveEntry();
+        }
+        return bos.toByteArray();
+    }
+
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         consumer.getReceivedMessages().clear();
         analysisJobRepository.deleteAll();
         repoRepository.deleteAll();
         userRepository.deleteAll();
 
-        // Drain any stale messages from queues
+        // Drain stale messages
         while (rabbitTemplate.receive(RabbitMQConfig.ANALYSIS_JOBS_QUEUE, 100) != null) {}
         while (rabbitTemplate.receive(RabbitMQConfig.ANALYSIS_JOBS_DLQ, 100) != null) {}
+
+        // Default stub: any tarball download returns a valid minimal .tar.gz
+        // This prevents NPE in TarballExtractor when consumer processes real jobs
+        byte[] minimalTarball = buildMinimalTarGz();
+        when(gitHubClient.downloadTarball(any(), any(), any(), any())).thenReturn(minimalTarball);
+        when(gitHubClient.getDecryptedSystemToken()).thenReturn(Optional.of("mocked-system-token"));
     }
 
     @Test
@@ -110,12 +129,12 @@ class AnalysisJobControllerTest {
         UUID jobId = UUID.fromString(objectMapper.readTree(responseBody).get("jobId").asText());
 
         // Wait for async consumer to process message
-        AnalysisJobMessage received = consumer.getReceivedMessages().poll(10, TimeUnit.SECONDS);
+        AnalysisJobMessage received = consumer.getReceivedMessages().poll(15, TimeUnit.SECONDS);
         assertNotNull(received, "Consumer should have received analysis job message from RabbitMQ");
         assertEquals(jobId, received.jobId());
         assertEquals("c0ffee1234", received.commitSha());
 
-        // Poll status endpoint
+        // Poll status endpoint — consumer should have completed job
         mockMvc.perform(get("/api/v1/analysis/" + jobId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.jobId", is(jobId.toString())))
@@ -136,9 +155,9 @@ class AnalysisJobControllerTest {
         List<CommitDto> commits = List.of(
                 new CommitDto("resolvedSha123456", "Initial commit", "2026-10-20T00:00:00Z")
         );
-        when(gitHubClient.fetchCommits(eq("octocat"), eq("Hello-World"), eq("master"), any())).thenReturn(commits);
+        when(gitHubClient.fetchCommits(eq("octocat"), eq("Hello-World"), eq("master"), any()))
+                .thenReturn(commits);
 
-        // Omit commitSha in request
         CreateAnalysisJobRequest request = new CreateAnalysisJobRequest(repo.getId(), "master", null);
 
         MvcResult result = mockMvc.perform(post("/api/v1/analysis")
@@ -149,7 +168,7 @@ class AnalysisJobControllerTest {
                 .andExpect(jsonPath("$.status", is("queued")))
                 .andReturn();
 
-        AnalysisJobMessage received = consumer.getReceivedMessages().poll(10, TimeUnit.SECONDS);
+        AnalysisJobMessage received = consumer.getReceivedMessages().poll(15, TimeUnit.SECONDS);
         assertNotNull(received);
         assertEquals("resolvedSha123456", received.commitSha());
     }

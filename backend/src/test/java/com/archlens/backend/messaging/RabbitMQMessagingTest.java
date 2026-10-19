@@ -1,11 +1,14 @@
 package com.archlens.backend.messaging;
 
 import com.archlens.backend.config.RabbitMQConfig;
+import com.archlens.backend.service.RepoAnalysisWorkerService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 
 import java.util.Properties;
 import java.util.UUID;
@@ -13,6 +16,11 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * Tests RabbitMQ infrastructure only (queue existence, produce→consume round-trip,
+ * dead-letter routing). The RepoAnalysisWorkerService is mocked out because worker
+ * logic (GitHub tarball fetch) is exercised separately in RepoAnalysisWorkerServiceTest.
+ */
 @SpringBootTest
 class RabbitMQMessagingTest {
 
@@ -28,7 +36,15 @@ class RabbitMQMessagingTest {
     @Autowired
     private RabbitAdmin rabbitAdmin;
 
-    @org.junit.jupiter.api.BeforeEach
+    /**
+     * Mock the worker so the consumer doesn't attempt a real GitHub tarball fetch.
+     * The mock returns null by default (no workspace), which the consumer handles
+     * gracefully via the null-check in its finally block.
+     */
+    @MockBean
+    private RepoAnalysisWorkerService workerService;
+
+    @BeforeEach
     void setUp() {
         consumer.getReceivedMessages().clear();
     }

@@ -136,6 +136,24 @@ public class GitHubClient {
                 .toList();
     }
 
+    public byte[] downloadTarball(String owner, String repo, String commitSha, String bearerToken) {
+        log.info("Downloading tarball for {}/{} (commit: {})", owner, repo, commitSha);
+
+        return restClient.get()
+                .uri("/repos/{owner}/{repo}/tarball/{commitSha}", owner, repo, commitSha)
+                .headers(headers -> {
+                    if (bearerToken != null && !bearerToken.isBlank()) {
+                        headers.setBearerAuth(bearerToken);
+                    }
+                })
+                .retrieve()
+                .onStatus(HttpStatusCode::is4xxClientError, (request, response) -> {
+                    log.warn("GitHub API error {} downloading tarball for {}/{}", response.getStatusCode(), owner, repo);
+                    throw new GitHubClientException(response.getStatusCode().value(), "GitHub API error: " + response.getStatusText());
+                })
+                .body(byte[].class);
+    }
+
     public static class GitHubClientException extends RuntimeException {
         private final int statusCode;
 
