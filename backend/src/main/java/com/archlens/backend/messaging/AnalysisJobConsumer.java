@@ -1,6 +1,8 @@
 package com.archlens.backend.messaging;
 
 import com.archlens.backend.config.RabbitMQConfig;
+import com.archlens.backend.detector.Tier1DetectorService;
+import com.archlens.backend.detector.model.DetectionResult;
 import com.archlens.backend.service.AnalysisJobService;
 import com.archlens.backend.service.RepoAnalysisWorkerService;
 import org.slf4j.Logger;
@@ -21,10 +23,16 @@ public class AnalysisJobConsumer {
 
     private final AnalysisJobService jobService;
     private final RepoAnalysisWorkerService workerService;
+    private final Tier1DetectorService detectorService;
 
-    public AnalysisJobConsumer(AnalysisJobService jobService, RepoAnalysisWorkerService workerService) {
+    public AnalysisJobConsumer(
+            AnalysisJobService jobService,
+            RepoAnalysisWorkerService workerService,
+            Tier1DetectorService detectorService
+    ) {
         this.jobService = jobService;
         this.workerService = workerService;
+        this.detectorService = detectorService;
     }
 
     @RabbitListener(queues = RabbitMQConfig.ANALYSIS_JOBS_QUEUE)
@@ -45,8 +53,14 @@ public class AnalysisJobConsumer {
             jobService.updateJobProgress(message.jobId(), "running", "fetching_contents", 10, null);
             workspace = workerService.fetchRepoContents(message.repoId(), message.commitSha());
 
-            // Stage 2: detect frameworks/manifests (M1.6 will populate real results here)
-            jobService.updateJobProgress(message.jobId(), "running", "detecting_frameworks", 40, null);
+            // Stage 2: detect frameworks/manifests (Tier 1 manifest detection)
+            if (workspace != null) {
+                DetectionResult detectionResult = detectorService.detect(workspace);
+                String detectorResultsJson = detectorService.toJson(detectionResult);
+                jobService.updateJobProgressAndResults(message.jobId(), "running", "detecting_frameworks", 40, detectorResultsJson, null);
+            } else {
+                jobService.updateJobProgress(message.jobId(), "running", "detecting_frameworks", 40, null);
+            }
 
             // Stage 3: assemble graph (M1.9 will build real graph)
             jobService.updateJobProgress(message.jobId(), "running", "assembling_graph", 80, null);

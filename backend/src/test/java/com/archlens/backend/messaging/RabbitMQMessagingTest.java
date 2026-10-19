@@ -16,12 +16,15 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.springframework.test.annotation.DirtiesContext;
+
 /**
  * Tests RabbitMQ infrastructure only (queue existence, produce→consume round-trip,
  * dead-letter routing). The RepoAnalysisWorkerService is mocked out because worker
  * logic (GitHub tarball fetch) is exercised separately in RepoAnalysisWorkerServiceTest.
  */
-@SpringBootTest
+@SpringBootTest(properties = "spring.rabbitmq.listener.simple.auto-startup=true")
+@DirtiesContext
 class RabbitMQMessagingTest {
 
     @Autowired
@@ -47,6 +50,8 @@ class RabbitMQMessagingTest {
     @BeforeEach
     void setUp() {
         consumer.getReceivedMessages().clear();
+        while (rabbitTemplate.receive(RabbitMQConfig.ANALYSIS_JOBS_QUEUE, 100) != null) {}
+        while (rabbitTemplate.receive(RabbitMQConfig.ANALYSIS_JOBS_DLQ, 100) != null) {}
     }
 
     @Test

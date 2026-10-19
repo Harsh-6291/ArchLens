@@ -119,6 +119,11 @@ public class AnalysisJobService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void updateJobProgress(UUID jobId, String status, String stage, Integer percent, String errorMessage) {
+        updateJobProgressAndResults(jobId, status, stage, percent, null, errorMessage);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void updateJobProgressAndResults(UUID jobId, String status, String stage, Integer percent, String detectorResults, String errorMessage) {
         jobRepository.findById(jobId).ifPresent(job -> {
             if (status != null) {
                 job.setStatus(status);
@@ -128,6 +133,9 @@ public class AnalysisJobService {
             }
             if (percent != null) {
                 job.setPercent(percent);
+            }
+            if (detectorResults != null) {
+                job.setDetectorResults(detectorResults);
             }
             if ("running".equals(status) && job.getStartedAt() == null) {
                 job.setStartedAt(Instant.now());

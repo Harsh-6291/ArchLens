@@ -48,8 +48,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@SpringBootTest
+import org.springframework.test.annotation.DirtiesContext;
+
+@SpringBootTest(properties = "spring.rabbitmq.listener.simple.auto-startup=true")
 @AutoConfigureMockMvc
+@DirtiesContext
 class AnalysisJobControllerTest {
 
     @Autowired private MockMvc mockMvc;
