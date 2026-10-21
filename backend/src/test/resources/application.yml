@@ -23,6 +23,10 @@ spring:
       simple:
         default-requeue-rejected: false
         auto-startup: false
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6380
 
 management:
   endpoints:

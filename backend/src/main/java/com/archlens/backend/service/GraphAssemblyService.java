@@ -23,6 +23,8 @@ public class GraphAssemblyService {
     private final AnalysisJobRepository jobRepository;
     private final RepoRepository repoRepository;
     private final ObjectMapper objectMapper;
+    private final GraphService graphService;
+    private final ApiExtractionService apiExtractionService;
 
     public GraphAssemblyService(
             ArchitectureGraphRepository graphRepository,
@@ -30,7 +32,9 @@ public class GraphAssemblyService {
             GraphEdgeRepository edgeRepository,
             AnalysisJobRepository jobRepository,
             RepoRepository repoRepository,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            GraphService graphService,
+            ApiExtractionService apiExtractionService
     ) {
         this.graphRepository = graphRepository;
         this.nodeRepository = nodeRepository;
@@ -38,6 +42,8 @@ public class GraphAssemblyService {
         this.jobRepository = jobRepository;
         this.repoRepository = repoRepository;
         this.objectMapper = objectMapper;
+        this.graphService = graphService;
+        this.apiExtractionService = apiExtractionService;
     }
 
     @Transactional
@@ -93,8 +99,14 @@ public class GraphAssemblyService {
         job.setGraphId(graph.getId());
         jobRepository.save(job);
 
-        log.info("Graph assembled successfully: id={}, nodes={}, edges={}",
-                graph.getId(), savedNodes.size(), inferredEdges.size());
+        // Invalidate previous cached graphs for this repository in Redis
+        graphService.evictGraphsForRepo(repoId);
+
+        // M2.1 — extract and persist API route definitions from controller nodes
+        int routeCount = apiExtractionService.extractAndPersist(graph);
+
+        log.info("Graph assembled successfully: id={}, nodes={}, edges={}, routes={}",
+                graph.getId(), savedNodes.size(), inferredEdges.size(), routeCount);
 
         return graph;
     }

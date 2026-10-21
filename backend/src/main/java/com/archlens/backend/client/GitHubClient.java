@@ -154,6 +154,27 @@ public class GitHubClient {
                 .body(byte[].class);
     }
 
+    public record GitHubCommentDto(Long id, String body, String htmlUrl) {}
+
+    public GitHubCommentDto createPrComment(String owner, String repo, int prNumber, String commentBody, String bearerToken) {
+        log.info("Posting comment on PR #{}/{} in {}/{}", prNumber, repo, owner, repo);
+
+        return restClient.post()
+                .uri("/repos/{owner}/{repo}/issues/{issueNumber}/comments", owner, repo, prNumber)
+                .headers(headers -> {
+                    if (bearerToken != null && !bearerToken.isBlank()) {
+                        headers.setBearerAuth(bearerToken);
+                    }
+                })
+                .body(java.util.Map.of("body", commentBody))
+                .retrieve()
+                .onStatus(HttpStatusCode::is4xxClientError, (request, response) -> {
+                    log.warn("GitHub API error {} creating comment for PR #{}/{}", response.getStatusCode(), prNumber, repo);
+                    throw new GitHubClientException(response.getStatusCode().value(), "GitHub API error: " + response.getStatusText());
+                })
+                .body(GitHubCommentDto.class);
+    }
+
     public static class GitHubClientException extends RuntimeException {
         private final int statusCode;
 

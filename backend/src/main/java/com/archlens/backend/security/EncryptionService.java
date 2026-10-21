@@ -85,4 +85,16 @@ public class EncryptionService {
             throw new RuntimeException("Decryption failed", e);
         }
     }
+
+    public String encryptToBase64(String plaintext) {
+        if (plaintext == null) return null;
+        byte[] encrypted = encrypt(plaintext);
+        return java.util.Base64.getEncoder().encodeToString(encrypted);
+    }
+
+    public String decryptFromBase64(String base64) {
+        if (base64 == null || base64.isBlank()) return null;
+        byte[] bytes = java.util.Base64.getDecoder().decode(base64);
+        return decrypt(bytes);
+    }
 }

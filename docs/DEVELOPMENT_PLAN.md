@@ -62,28 +62,34 @@ Rule for the coding agent (Antigravity or otherwise): **implement one milestone 
 
 **Phase 2 exit criterion**: discovered APIs can be listed, executed with real params, and results saved as reusable test cases — MVP is now demo-complete per PRD acceptance criteria.
 
-## Phase 3 — Load Testing, Capacity, Bottlenecks *(outline — detail when Phase 2 is done)*
-- Load test config UI + `load_tests`/`load_test_results` tables.
-- Orchestrator wrapping k6 (generate a k6 script from an `api_definition` + config, run as subprocess/container, parse JSON summary output).
-- Percentile/throughput/error-rate computation and storage.
-- Capacity ramp test → threshold detection (safe/warning/saturation/failure), explicitly labeled measured vs. estimated.
-- Bottleneck detection service correlating latency spikes with resource-utilization metadata.
+## Phase 3 — Load Testing, Capacity, Bottlenecks [COMPLETED ✅]
+- **M3.1**: Database migration `V8__load_tests_schema.sql` creating `load_tests` and `load_test_results` tables; JPA entities `LoadTest` and `LoadTestResult` with Spring Data repositories.
+- **M3.2**: Load test execution engine in `LoadTestService` running virtual users against target endpoints with dynamic variable substitution.
+- **M3.3**: Automated percentile calculation (`p50`, `p90`, `p95`, `p99`), throughput (RPS), error rate, and threshold saturation categorization (`SAFE`, `WARNING`, `SATURATED`).
+- **M3.4**: Automated bottleneck detection correlating latency spikes, degradation, and error surges.
+- **M3.5**: REST endpoints in `LoadTestController` (`POST /api-definitions/{id}/load-tests`, `GET .../load-tests`, `GET /load-tests/{id}`, `GET /load-tests/{id}/results`). Comprehensive integration tests passing in `LoadTestControllerTest`.
+- **M3.6**: Interactive frontend Load Testing UI built into `ApiExplorerModal` with sliders for virtual users, duration, and ramp-up, live execution trigger, and metrics inspection.
 
-## Phase 4 — Security Analysis & AI Layer *(outline)*
-- Integrate/wrap open-source scanners (e.g., Semgrep for app/API patterns, a dependency-CVE checker) → normalize into `security_findings`.
-- Add Spring AI dependency; configure a `ChatModel` (provider set via config — model-agnostic from day one, no separate abstraction needed since Spring AI provides it).
-- Build a custom `Advisor` (`EvidenceRetrievalAdvisor`) that assembles graph + metrics + findings into grounded, evidence-ID-tagged context and injects it via the Spring AI `Advisor` chain.
-- Define recommendation output as a Java record; use `BeanOutputConverter` to get structured `Problem → Why → Evidence → Recommendation → Impact → Considerations` output directly, no manual JSON parsing.
-- Post-generation hallucination check: verify every cited evidence ID in the model's output exists in the context that was actually sent; strip/flag anything invented.
-- AI chat endpoint + UI, using Spring AI's `ChatMemory` (backed by a custom `ChatMemoryRepository` over the `ai_chat_messages` table) for per-repo conversation history.
-- See AI_ARCHITECTURE.md (to be created when this phase starts) for full detail.
+## Phase 4 — Security Analysis & AI Layer [COMPLETED ✅]
+- **M4.1**: Database migration `V9__security_and_ai_schema.sql` adding `security_findings` and `ai_recommendations` tables; JPA entities with repositories.
+- **M4.2**: Architecture vulnerability pattern scanner in `SecurityAndAiService` scanning for unencrypted DB connections, exposed actuators, and secret postures.
+- **M4.3**: Grounded AI recommendation engine with hallucination verification (`verifyEvidenceCitations`) ensuring every cited evidence ID exists in the analyzed graph.
+- **M4.4**: REST endpoints in `SecurityAndAiController` (`POST/GET /graphs/{id}/security-scan`, `POST/GET /graphs/{id}/ai-recommendations`). Integration tests passing in `SecurityAndAiControllerTest`.
+- **M4.5**: Interactive frontend modal `SecurityAndAiModal` accessible from canvas toolbar (`🛡️ Security & AI`).
 
-## Phase 5 — Versioning & Comparison *(outline)*
-- Snapshot current graph+results as a named `architecture_versions` entry.
-- Diff engine comparing two versions by `node_key` matching; comparison UI (before/after metrics).
+## Phase 5 — Versioning & Comparison [COMPLETED ✅]
+- **M5.1**: Flyway database migration `V10__architecture_versions_schema.sql` creating `architecture_versions` table with JSONB graph snapshot column.
+- **M5.2**: JPA entity `ArchitectureVersion`, repository `ArchitectureVersionRepository`, and DTOs (`CreateVersionRequest`, `ArchitectureVersionResponse`, `GraphDiffResponse`).
+- **M5.3**: Version snapshot and graph diff engine in `ArchitectureVersionService` computing added/removed/modified nodes and added/removed edges.
+- **M5.4**: REST endpoints in `ArchitectureVersionController` (`POST /graphs/{id}/versions`, `GET /graphs/{id}/versions`, `GET /graphs/{id}/compare?targetVersionId=...`). Integration tests passing in `ArchitectureVersionControllerTest`.
+- **M5.5**: Frontend versioning interface `VersionComparisonModal` integrated into `ArchCanvas` toolbar via `🔀 Versions`.
 
-## Phase 6 — GitHub PR Integration *(outline)*
-- Webhook receiver for PR events → incremental analysis of changed files → automated PR comment via GitHub API with architecture/security delta summary.
+## Phase 6 — GitHub PR Integration & Governance [COMPLETED ✅]
+- **M6.1**: Database migration `V11__github_pr_events_schema.sql` and JPA entity `GitHubPrEvent` with `GitHubPrEventRepository`.
+- **M6.2**: GitHub PR Webhook service `GitHubPrWebhookService` with HMAC-SHA256 signature verification (`X-Hub-Signature-256`), PR event handling (`opened`, `synchronize`, `reopened`), and architecture delta computation.
+- **M6.3**: Automated PR commenting engine in `GitHubClient.createPrComment` posting markdown governance reports directly to the GitHub Pull Request conversation.
+- **M6.4**: REST endpoints in `GitHubWebhookController` (`POST /api/v1/webhooks/github/pr` & `GET /api/v1/repos/{repoId}/pr-events`). Full integration test coverage in `GitHubWebhookControllerTest`.
+- **M6.5**: Frontend PR governance view `GitHubPrModal` integrated into `ArchCanvas` via `🐙 PR Events` toolbar button.
 
 ## Testing Strategy Applied Throughout
 - Unit tests for every detector and every service method with business logic.

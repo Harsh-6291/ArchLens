@@ -75,6 +75,22 @@ class SpringBootDetectorTest {
         assertEquals(2, layerSummary.get("controllerCount"));
         assertEquals(2, layerSummary.get("serviceCount"));
         assertEquals(2, layerSummary.get("repositoryCount"));
+        assertEquals(2, layerSummary.get("routeCount"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> routes = (List<Map<String, Object>>) metadata.get("routes");
+        assertNotNull(routes);
+        assertEquals(2, routes.size());
+        assertTrue(routes.stream().anyMatch(r ->
+                "GET".equals(r.get("httpMethod"))
+                && "/api/v1/users".equals(r.get("path"))
+                && "listUsers".equals(r.get("handlerMethod"))
+                && "UserController".equals(r.get("handlerClass"))));
+        assertTrue(routes.stream().anyMatch(r ->
+                "GET".equals(r.get("httpMethod"))
+                && "/api/v1/orders".equals(r.get("path"))
+                && "listOrders".equals(r.get("handlerMethod"))
+                && "OrderController".equals(r.get("handlerClass"))));
     }
 
     @Test
